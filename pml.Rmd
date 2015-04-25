@@ -1,0 +1,117 @@
+---
+title: "Practical Machine Learning (Writeup)"
+author: "Artur Krupa"
+date: "Saturday, April 25, 2015"
+output: html_document
+---
+
+## Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
+
+## Data
+
+The training data for this project are available here: 
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here: 
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment. 
+
+
+## Part 1: Prediction algorithm
+
+First we must to install and load some libraries:
+```{r, warning=FALSE, message=FALSE, results='hide'}
+packages <- c("ggplot2", "caret", "randomForest", "e1071", "gbm", "doParallel", "survival", "splines", "plyr")
+
+if (length(setdiff(packages, rownames(installed.packages()))) > 0) {
+  install.packages(setdiff(packages, rownames(installed.packages())))  
+}
+
+lapply(packages, require, character.only=T)
+```
+
+And load our data to right variables:
+```{r}
+training <- read.csv("pml-training.csv", na.strings=c("#DIV/0!"), row.names = 1)
+testing <- read.csv("pml-testing.csv", na.strings=c("#DIV/0!"), row.names = 1)
+```
+
+## Part 2: Training and testing
+
+Now we can train our algorithm and test for real data:
+```{r}
+training <- training[, 6:dim(training)[2]]
+
+treshold <- dim(training)[1] * 0.95
+goodColumns <- !apply(training, 2, function(x) sum(is.na(x)) > treshold  || sum(x=="") > treshold)
+
+training <- training[, goodColumns]
+badColumns <- nearZeroVar(training, saveMetrics = TRUE)
+
+training <- training[, badColumns$nzv==FALSE]
+training$classe = factor(training$classe)
+
+inTrain <- createDataPartition(training$classe, p = 0.6)[[1]]
+crossv <- training[-inTrain,]
+training <- training[ inTrain,]
+inTrain <- createDataPartition(crossv$classe, p = 0.75)[[1]]
+crossv_test <- crossv[ -inTrain,]
+crossv <- crossv[inTrain,]
+```
+
+and lets test our data:
+```{r}
+testing <- testing[, 6:dim(testing)[2]]
+testing <- testing[, goodColumns]
+testing$classe <- NA
+testing <- testing[, badColumns$nzv==FALSE]
+
+mod1 <- train(classe ~ ., data=training, method="rf")
+pred1 <- predict(mod1, crossv)
+```
+
+Show the results:
+```{r}
+confusionMatrix(pred1, crossv$classe)
+```
+
+As we can see, the RandomForest prediction is better than Isa or GBM model. Used model has 99.6% accuracy, which is perfect.
+
+## Part 3: Correction - worth it?
+
+We can try to analyse the variables - lets see the top 20:
+```{r}
+varImpRF <- train(classe ~ ., data = training, method = "rf")
+varImpObj <- varImp(varImpRF)
+plot(varImpObj, main = "Importance of Top 20 Variables", top = 20)
+```
+
+Because 99,6% is perfect accuracy - we do not need to make this step.
+We can use this for final computations. Also we can say, that Random Forests
+are very useful for multiple inputs and allow for multiple-validation methods.
+
+## Part 4: Submission and additional tests
+
+```{r}
+pml_write_files = function(x){
+  n = length(x)
+	for(i in 1:n){
+		filename = paste0("problem_id_",i,".txt")
+		write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+	}
+}
+x <- testing
+
+answers <- predict(mod1, newdata=x)
+answers
+```
+
+and write the answers:
+```{r}
+pml_write_files(answers)
+```
